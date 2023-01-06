@@ -186,7 +186,7 @@ impl From<&Transaction> for TransactionRequest {
     fn from(tx: &Transaction) -> TransactionRequest {
         TransactionRequest::new()
             .from(tx.from)
-            .to(tx.to.unwrap())
+            .to(tx.to.unwrap_or_default())
             .nonce(tx.nonce)
             .value(tx.value)
             .data(tx.call_data.clone())

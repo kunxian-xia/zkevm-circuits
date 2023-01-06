@@ -402,13 +402,15 @@ mod super_circuit_tests {
     use ethers_signers::{LocalWallet, Signer};
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
+    use itertools::Itertools;
     use log::error;
-    use mock::{TestContext, MOCK_CHAIN_ID};
+    use mock::{eth, TestContext, MOCK_CHAIN_ID};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
     use std::collections::HashMap;
 
-    use eth_types::{address, bytecode, geth_types::GethData, Word};
+    use eth_types::evm_types::OpcodeId;
+    use eth_types::{address, bytecode, geth_types::GethData, Bytecode, Word};
 
     #[test]
     fn super_circuit_degree() {
@@ -432,6 +434,24 @@ mod super_circuit_tests {
         }
     }
 
+    fn callee_bytecode(is_return: bool, offset: u64, length: u64) -> Bytecode {
+        let memory_bytes = [0x60; 10];
+        let memory_address = 0;
+        let memory_value = Word::from_big_endian(&memory_bytes);
+        let mut code = bytecode! {
+            PUSH10(memory_value)
+            PUSH1(memory_address)
+            MSTORE
+            PUSH2(length)
+            PUSH2(32u64 - u64::try_from(memory_bytes.len()).unwrap() + offset)
+        };
+        code.write_op(if is_return {
+            OpcodeId::RETURN
+        } else {
+            OpcodeId::REVERT
+        });
+        code
+    }
     fn block_1tx() -> GethData {
         let mut rng = ChaCha20Rng::seed_from_u64(2);
 
@@ -450,20 +470,28 @@ mod super_circuit_tests {
         let mut wallets = HashMap::new();
         wallets.insert(wallet_a.address(), wallet_a);
 
+        // let test_parameters = [(0, 0), (0, 10), (300, 20), (1000, 0)];
+        let tx_input = callee_bytecode(true, 300, 20).code();
         let mut block: GethData = TestContext::<2, 1>::new(
             None,
+            // |accs| {
+            //     accs[0]
+            //         .address(addr_b)
+            //         .balance(Word::from(1u64 << 20))
+            //         .code(bytecode);
+            //     accs[1].address(addr_a).balance(Word::from(1u64 << 20));
+            // },
+            // |mut txs, accs| {
+            //     txs[0]
+            //         .from(accs[1].address)
+            //         .to(accs[0].address)
+            //         .gas(Word::from(1_000_000u64));
+            // },
             |accs| {
-                accs[0]
-                    .address(addr_b)
-                    .balance(Word::from(1u64 << 20))
-                    .code(bytecode);
-                accs[1].address(addr_a).balance(Word::from(1u64 << 20));
+                accs[0].address(addr_a).balance(eth(10));
             },
             |mut txs, accs| {
-                txs[0]
-                    .from(accs[1].address)
-                    .to(accs[0].address)
-                    .gas(Word::from(1_000_000u64));
+                txs[0].from(accs[0].address).input(tx_input.into());
             },
             |block, _tx| block.number(0xcafeu64),
         )
